@@ -12,6 +12,10 @@ def list_as_dec(binary_list: List[int]) -> int:
 
 
 def list_as_str(binary_list: List[int]) -> str:
+    """Return a string with a binary representation.
+
+    The input needs to be a list of ints where each element is either 1 or 0.
+    """
     return "0b" + "".join(map(str, binary_list))
 
 
