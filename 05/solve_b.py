@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
+# pylint: disable=missing-function-docstring, missing-class-docstring, missing-module-docstring
 
 import itertools
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from pprint import pprint
 from typing import Iterator
 from typing import Tuple
 
-# pylint: disable=missing-function-docstring, missing-class-docstring
-
 
 def unidirectional_range(a: int, b: int) -> range:
+    # pylint: disable=invalid-name
     step = 1 if (a <= b) else -1
     return range(a, b + step, step)
 
@@ -28,8 +27,8 @@ class Position:
         return hash((self.x, self.y))
 
     @classmethod
-    def from_string(cls, input: str) -> "Position":
-        return cls(*(int(coordinate) for coordinate in input.split(",")))
+    def from_string(cls, string: str) -> "Position":
+        return cls(*(int(coordinate) for coordinate in string.split(",")))
 
 
 class Path:
@@ -61,8 +60,8 @@ class Path:
         return f"{self.start} -> {self.end}"
 
     @classmethod
-    def from_string(cls, input: str) -> "Path":
-        return cls(*map(Position.from_string, input.strip().split(" -> ")))
+    def from_string(cls, string: str) -> "Path":
+        return cls(*map(Position.from_string, string.strip().split(" -> ")))
 
 
 def main() -> None:
