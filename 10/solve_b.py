@@ -3,7 +3,6 @@
 import sys
 from typing import List
 from functools import reduce
-from pprint import pprint
 
 
 def validate_line(line: str) -> int:
