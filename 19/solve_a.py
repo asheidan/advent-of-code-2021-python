@@ -2,6 +2,7 @@
 # pylint: disable=missing-function-docstring, missing-class-docstring, missing-module-docstring
 
 import itertools
+import os.path
 import sys
 from math import cos, sin, pi
 
@@ -18,9 +19,12 @@ def log_progress(file_name: str, scanner: int, translation, offset) -> None:
         progress_file.write("\n")
 
 
-def iterate_progress_cache(file_name: str):
+def iterate_progress_cache(filename: str):
     print("Read from cache")
-    with open(file_name, "r") as cache_file:
+    if not os.path.exists(filename):
+        return
+
+    with open(filename, "r") as cache_file:
         for line in cache_file.readlines():
             scanner_index, offset_data, translation_data = line.strip().split("|")
             offset = numpy.array(offset_data.split(","), numpy.int32)
@@ -34,33 +38,57 @@ def iterate_progress_cache(file_name: str):
     return
 
 
-def partitioned_product(a_points, b_points):
+def split_partition_indices(points):
+    kth = len(points) // 2
 
-    a_kth = len(a_points) // 2
-    b_kth = len(b_points) // 2
+    partition_indices = numpy.argpartition(points, kth, axis=0)
+    split_indices = []
+    for axis in range(3):
+        split_indices.append(
+            (
+                frozenset(partition_indices[:kth, axis]),
+                frozenset(partition_indices[(kth + 1) :, axis]),
+            )
+        )
 
-    a_partition_indices = numpy.partition(a_points, a_kth, axis=0)
-    b_partition_indices = numpy.partition(b_points, b_kth, axis=0)
+    return split_indices
 
-    # Front / Back
-    a_x_min = a_partition_indices[:a_kth, 0]
-    a_x_max = a_partition_indices[(a_kth + 1) :, 0]
 
-    b_x_min = b_partition_indices[:b_kth, 0]
-    b_x_max = b_partition_indices[(b_kth + 1) :, 0]
+def partitioned_product(a_points, b_points, a_split_indices=None, b_split_indices=None):
 
-    itertools.product(
-        a_points[a_x_max, :],
-        b_points[b_x_min, :],
-    )
-    # a_points[, :]
-    # b_points[b_partition_indices[b_kth:, 0], :]
-    #for a_point, b_point in itertools.product
+    if a_split_indices is None:
+        a_split_indices = split_partition_indices(a_points)
+
+    if b_split_indices is None:
+        b_split_indices = split_partition_indices(b_points)
+
+    for axis in range(3):
+        # We don't actually have to compare offsets for all quadrants since the
+        # scanners overlap almost the entire facing area
+        for backside, quadrant in itertools.product(range(2), range(1)):
+            yield from itertools.product(
+                a_points[
+                    list(
+                        a_split_indices[axis][backside]
+                        & a_split_indices[(axis + 1) % 3][quadrant // 2]
+                        & a_split_indices[(axis + 2) % 3][quadrant % 1]
+                    ),
+                    :,
+                ],
+                b_points[
+                    list(
+                        b_split_indices[axis][(backside + 1) % 2]
+                        & b_split_indices[(axis + 1) % 3][quadrant // 2]
+                        & b_split_indices[(axis + 2) % 3][quadrant % 1]
+                    ),
+                    :,
+                ],
+            )
 
 
 def main() -> None:
     scanners_to_place = []
-    input_filename = sys.argv[1]
+    input_filename = sys.argv[1] if len(sys.argv) > 1 else "input.txt"
     cache_filename = f"{input_filename}.progress"
     with open(input_filename, "r") as data_file:
         for beacon_data in data_file.read().strip().split("\n\n"):
@@ -80,7 +108,7 @@ def main() -> None:
             beacons,
             numpy.identity(3, numpy.int32),
             numpy.zeros(3, numpy.int32),
-            # numpy.partition(beacons, len(beacons) // 2, axis=0),
+            split_partition_indices(beacons),
         ),
     ]
 
@@ -92,7 +120,7 @@ def main() -> None:
                 beacons,
                 translation,
                 offset,
-                # numpy.partition(beacons, len(beacons) // 2, axis=0),
+                split_partition_indices(beacons),
             )
         )
 
@@ -136,12 +164,6 @@ def main() -> None:
         )
     )
 
-    # figure = plot.figure()
-    # axis = plot.axes(projection="3d")
-    # axis.scatter(universe[:, 0], universe[:, 1], universe[:, 2])
-    # axis.scatter(0, 0, 0, c="red")
-    # plot.show()
-
     while scanners_to_place:
 
         for number, beacon_data in enumerate(scanners_to_place):
@@ -157,12 +179,11 @@ def main() -> None:
                     rotated_beacon_data = numpy.matmul(beacon_data, translation)
 
                     # For all placed scanners (in reverse to try to optimize)
-                    for placed_beacons, _, placed_scanner in universe:
+                    for placed_beacons, _, placed_scanner, split_indices in universe:
 
                         # For all possible offsets
-                        # TODO: Optimize to not compare all points with all other points
-                        for placed_beacon, new_beacon in itertools.product(
-                            placed_beacons, rotated_beacon_data
+                        for placed_beacon, new_beacon in partitioned_product(
+                            placed_beacons, rotated_beacon_data, a_split_indices=split_indices,
                         ):
 
                             offset = placed_beacon - new_beacon
@@ -185,7 +206,7 @@ def main() -> None:
                                 )
                                 print("   Placed scanner:", offset, common_points_count)
 
-                                universe.append((moved_beacons, translation, offset))
+                                universe.append((moved_beacons, translation, offset, split_partition_indices(moved_beacons)))
 
                                 scanners_to_place.pop(number)
 
@@ -199,26 +220,30 @@ def main() -> None:
                 else:
                     continue
                 break  # For scanners to place
+        else:
+            print("COULD NOT PLACE ANY SCANNER?!!")
+            return
 
     all_beacons = itertools.chain(
-        *(beacon_data for beacon_data, _rotation, _offset in universe)
+        *(beacon_data for beacon_data, _rotation, _offset, _split_indices in universe)
     )
     unique_beacons = {tuple(beacon) for beacon in all_beacons}
     print(f"----------------------------------- {len(unique_beacons) : >5} beacons")
-    scanner_positions = [offset for _, _, offset in universe]
+    scanner_positions = [offset for _, _, offset, _ in universe]
 
-    max_distance = max(numpy.absolute(a - b).sum() for a, b in itertools.product(scanner_positions, scanner_positions))
+    max_distance = max(
+        numpy.absolute(a - b).sum()
+        for a, b in itertools.product(scanner_positions, scanner_positions)
+    )
     print(f"----------------------------------- {max_distance : >5} distance")
 
-
     # figure = plot.figure()
-    axis = plot.axes(projection="3d")
-    for beacons, rotation, offset in universe:
-        #print(rotation, offset)
-        axis.scatter(beacons[:, 0], beacons[:, 1], beacons[:, 2])
-        axis.scatter(offset[0], offset[1], offset[2], c="red")
-
-    plot.show()
+    #axis = plot.axes(projection="3d")
+    #for beacons, rotation, offset, _indices in universe:
+    #    # print(rotation, offset)
+    #    axis.scatter(beacons[:, 0], beacons[:, 1], beacons[:, 2])
+    #    axis.scatter(offset[0], offset[1], offset[2], c="red")
+    #plot.show()
 
 
 if __name__ == "__main__":
