@@ -7,7 +7,8 @@ import sys
 from math import cos, sin, pi
 
 import numpy
-from matplotlib import pyplot as plot
+
+# from matplotlib import pyplot as plot
 from tqdm import tqdm
 
 
@@ -175,22 +176,26 @@ def main() -> None:
                     progress_bar.update(1)
 
                     translation = numpy.matmul(rotation, facing)
-                    # print(translation)
                     rotated_beacon_data = numpy.matmul(beacon_data, translation)
+                    b_split_indices = split_partition_indices(rotated_beacon_data)
 
-                    # For all placed scanners (in reverse to try to optimize)
-                    for placed_beacons, _, placed_scanner, split_indices in universe:
+                    # For all placed scanners
+                    for placed_beacons, _rotation, _offset, a_split_indices in universe:
+                        placed_beacon_set = frozenset(map(tuple, placed_beacons))
 
                         # For all possible offsets
                         for placed_beacon, new_beacon in partitioned_product(
-                            placed_beacons, rotated_beacon_data, a_split_indices=split_indices,
+                            placed_beacons,
+                            rotated_beacon_data,
+                            a_split_indices=a_split_indices,
+                            b_split_indices=b_split_indices,
                         ):
 
                             offset = placed_beacon - new_beacon
                             moved_beacons = rotated_beacon_data + offset
 
                             common_points_count = len(
-                                frozenset(map(tuple, placed_beacons)).intersection(
+                                placed_beacon_set.intersection(
                                     frozenset(map(tuple, moved_beacons))
                                 )
                             )
@@ -206,7 +211,14 @@ def main() -> None:
                                 )
                                 print("   Placed scanner:", offset, common_points_count)
 
-                                universe.append((moved_beacons, translation, offset, split_partition_indices(moved_beacons)))
+                                universe.append(
+                                    (
+                                        moved_beacons,
+                                        translation,
+                                        offset,
+                                        split_partition_indices(moved_beacons),
+                                    )
+                                )
 
                                 scanners_to_place.pop(number)
 
@@ -238,12 +250,12 @@ def main() -> None:
     print(f"----------------------------------- {max_distance : >5} distance")
 
     # figure = plot.figure()
-    #axis = plot.axes(projection="3d")
-    #for beacons, rotation, offset, _indices in universe:
+    # axis = plot.axes(projection="3d")
+    # for beacons, rotation, offset, _indices in universe:
     #    # print(rotation, offset)
     #    axis.scatter(beacons[:, 0], beacons[:, 1], beacons[:, 2])
     #    axis.scatter(offset[0], offset[1], offset[2], c="red")
-    #plot.show()
+    # plot.show()
 
 
 if __name__ == "__main__":
