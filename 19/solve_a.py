@@ -10,18 +10,21 @@ from matplotlib import pyplot as plot
 
 
 def main() -> None:
-    scanner_pings = []
-    for scanner in sys.stdin.read().strip().split("\n\n"):
-        scanner_lines = scanner.split("\n")
-        scanner_pings.append(
+    scanners_to_place = []
+    for beacon_data in sys.stdin.read().strip().split("\n\n"):
+        scanner_lines = beacon_data.split("\n")
+        scanners_to_place.append(
             numpy.array(
                 [[int(v) for v in line.split(",")] for line in scanner_lines[1:]],
                 numpy.int32,
             )
         )
 
-    # Let's use the coordinates for Scanner 0 as our "truth"
-    universe = scanner_pings.pop(0)
+    # Let's use the coordinates for Scanner 0 as our first "truth"
+    universe = [
+        # Placed beacons, rotational matrix, offset
+        (scanners_to_place.pop(0), numpy.identity(3, numpy.int32), numpy.zeros(3, numpy.int32)),
+    ]
     print(universe)
 
     rotations = [
@@ -70,39 +73,66 @@ def main() -> None:
     # axis.scatter(0, 0, 0, c="red")
     # plot.show()
 
-    for number, scanner in enumerate(scanner_pings):
-        print(f"Trying to place scanner: {number + 1}")
-        # print(scanner)
+    while scanners_to_place:
 
-        # TODO: For all possible axis-rotations
-        for rotation, facing in itertools.product(rotations, facings):
+        for number, beacon_data in enumerate(scanners_to_place):
+            print(f"Trying to place scanner: {number + 1 : >2} ({len(universe)}|{len(scanners_to_place)})")
+            # print(scanner)
 
-            translation = numpy.matmul(rotation, facing)
-            print(translation)
-            rotated_scanner = numpy.matmul(scanner, translation)
+            # For all possible axis-rotations
+            for rotation_progress, (rotation, facing) in enumerate(itertools.product(rotations, facings)):
+                print(f"\r{rotation_progress : >2} / 24", file=sys.stderr, end="")
 
-            # For all possible offsets
-            # TODO: Optimize to not compare all points with all other points
-            for placed_beacon, new_beacon in itertools.product(
-                universe, rotated_scanner
-            ):
+                translation = numpy.matmul(rotation, facing)
+                # print(translation)
+                rotated_beacon_data = numpy.matmul(beacon_data, translation)
 
-                offset = placed_beacon - new_beacon
-                moved_beacons = rotated_scanner + offset
+                # For all placed scanners (in reverse to try to optimize)
+                for placed_beacons, _, placed_scanner in reversed(universe):
 
-                common_points_count = 0
-                for a, b in itertools.product(universe, moved_beacons):
-                    if (a == b).all():
-                        common_points_count += 1
+                    # For all possible offsets
+                    # TODO: Optimize to not compare all points with all other points
+                    for placed_beacon, new_beacon in itertools.product(
+                        placed_beacons, rotated_beacon_data
+                    ):
 
-                if common_points_count >= 12:
-                    print("   Placed scanner:", offset, (common_points_count,))
+                        offset = placed_beacon - new_beacon
+                        moved_beacons = rotated_beacon_data + offset
 
-                    break  # For offset points
-                    break  # For rotations
-                    break  # For all scanners
+                        common_points_count = 0
+                        for a, b in itertools.product(placed_beacons, moved_beacons):
+                            if (a == b).all():
+                                common_points_count += 1
 
-        return
+                        if common_points_count >= 12:
+                            print("   Placed scanner:", offset, common_points_count)
+
+                            universe.append((moved_beacons, translation, offset))
+
+                            scanners_to_place.pop(number)
+
+                            break  # For offset points
+                    else:
+                        continue
+                    break  # For all placed scanners
+                else:
+                    continue
+                break  # For rotations
+            else:
+                continue
+            break  # For scanners to place
+
+    # figure = plot.figure()
+    axis = plot.axes(projection="3d")
+    for beacons, rotation, offset in universe:
+        print(rotation, offset)
+        axis.scatter(beacons[:, 0], beacons[:, 1], beacons[:, 2])
+        axis.scatter(offset[0], offset[1], offset[2], c="red")
+
+    plot.show()
+
+
+    return
 
 
 if __name__ == "__main__":
